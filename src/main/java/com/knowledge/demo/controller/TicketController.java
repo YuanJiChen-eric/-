@@ -4,6 +4,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -49,20 +50,35 @@ public class TicketController {
 
     private void syncToKnowledgeBase(String question, String answer) {
         try {
-            HttpClient client = HttpClient.newHttpClient();
-            // 构造传给成员 C 的请求 JSON
-            String requestBody = String.format("{\"question\": \"%s\", \"answer\": \"%s\"}", question, answer);
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("http://localhost:8000/api/kb/add")) // 成员 C 提供的添加知识库接口
-                    .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+            HttpClient client = HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)  // 强制 HTTP/1.1，避免 uvicorn 不支持 h2c 升级
                     .build();
-            
-            client.sendAsync(request, HttpResponse.BodyHandlers.ofString());
+            // 安全地转义 JSON 字符串
+            String requestBody = String.format("{\"question\": \"%s\", \"answer\": \"%s\"}",
+                    escapeJson(question), escapeJson(answer));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("http://127.0.0.1:8000/api/kb/add")) // 成员 C 提供的添加知识库接口
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
+                    .build();
+
+            // 使用同步发送，确保能捕获异常并打印日志
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("知识库同步响应: HTTP " + response.statusCode() + " - " + response.body());
         } catch (Exception e) {
             System.err.println("同步知识库失败: " + e.getMessage());
+            e.printStackTrace();
         }
+    }
+
+    private String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 }
 
