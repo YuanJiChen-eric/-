@@ -18,7 +18,7 @@ INDEX_FILE = os.path.join(FAISS_PATH, "index.faiss")
 META_FILE = os.path.join(FAISS_PATH, "metadata.json")
 
 # Embedding 模型（轻量快速，适合 Mac 8GB 内存）
-EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_MODEL = "./local_models/sentence-transformers/all-MiniLM-L6-v2"
 
 
 class FaissStore:
@@ -28,7 +28,11 @@ class FaissStore:
         os.makedirs(FAISS_PATH, exist_ok=True)
         print(f"[FAISSStore] 加载 Embedding 模型: {EMBEDDING_MODEL}")
         self.model = SentenceTransformer(EMBEDDING_MODEL)
-        self.dimension = self.model.get_embedding_dimension()
+        # 兼容新旧版本的维度获取方法
+        if hasattr(self.model, "get_sentence_embedding_dimension"):
+            self.dimension = self.model.get_sentence_embedding_dimension()
+        else:
+            self.dimension = self.model.get_embedding_dimension()
         print(f"[FAISSStore] 向量维度: {self.dimension}")
 
         self.index = None

@@ -40,13 +40,15 @@ public class ChatController {
             StringBuilder fullResponse = new StringBuilder();
             try {
                 // 1. 调用成员 A 部署的 Python 接口（假设它运行在本地 8000 端口）
-                HttpClient client = HttpClient.newHttpClient();
+                HttpClient client = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .build();
                 String requestBody = "{\"query\": \"" + request.getQuery() + "\"}";
                 
                 HttpRequest pyRequest = HttpRequest.newBuilder()
-                        .uri(URI.create("http://localhost:8000/api/rag")) // 成员 A 提供的 API 地址
+                        .uri(URI.create("http://localhost:8001/api/rag"))
                         .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                        .POST(HttpRequest.BodyPublishers.ofString(requestBody, java.nio.charset.StandardCharsets.UTF_8)) 
                         .build();
 
                 // 2. 以流的方式读取 Python 端返回的响应
