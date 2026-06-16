@@ -9,10 +9,27 @@ import sys
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["HF_HUB_DISABLE_SYMLINKS_WARNING"] = "1"
 
-from faiss_store import store
+from chroma_store import store
 from seed_data import SEED_DATA, expand_to_500
 
-OPS_DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops_docs")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OPS_DOCS_RAW = os.path.join(BASE_DIR, "ops_docs")
+OPS_DOCS_CLEAN = os.path.join(BASE_DIR, "ops_docs_clean")
+
+# 优先使用清洗后的文档（data_clean.py 产出）
+if os.path.isdir(OPS_DOCS_CLEAN) and any(
+    f.endswith(".md") for f in os.listdir(OPS_DOCS_CLEAN)
+):
+    OPS_DOCS_DIR = OPS_DOCS_CLEAN
+    print(f"[rebuild_kb] 使用清洗后文档: {OPS_DOCS_DIR}")
+else:
+    OPS_DOCS_DIR = OPS_DOCS_RAW
+    print(f"[rebuild_kb] 使用原始文档: {OPS_DOCS_DIR}")
+
+# 非知识库内容，导入时跳过
+SKIP_FILES = {
+    "课题要求.md",           # 课题说明文档，非运维知识
+}
 
 
 def make_question(doc_name: str, h2_title: str, h3_title: str) -> str:
@@ -133,7 +150,10 @@ def parse_ops_docs(filepath: str):
     return qa_pairs, doc_name
 
 
-md_files = sorted([f for f in os.listdir(OPS_DOCS_DIR) if f.endswith(".md")])
+md_files = sorted([
+    f for f in os.listdir(OPS_DOCS_DIR)
+    if f.endswith(".md") and f not in SKIP_FILES
+])
 total_chunks = 0
 
 for md_file in md_files:
@@ -152,5 +172,5 @@ print(f"\n{'=' * 60}")
 print(f"  重建完成！")
 print(f"  运维文档块数: {total_chunks}")
 print(f"  知识库总计: {store.count()} 条")
-print(f"  存储位置: {os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'faiss_store')}")
+print(f"  存储位置: {os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'chroma_kb_store')}")
 print(f"{'=' * 60}")

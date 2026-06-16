@@ -7,7 +7,7 @@ import sys
 import os
 
 # 导入知识库存储
-from faiss_store import store, FAISS_PATH
+from chroma_store import store, CHROMA_PATH
 
 
 # ═══════════════════════════════════════════════════════
@@ -263,7 +263,7 @@ if __name__ == "__main__":
     total = store.count()
     print(f"\n{'=' * 60}")
     print(f"  初始化完成！知识库总计: {total} 条")
-    print(f"  存储位置: {FAISS_PATH}")
+    print(f"  存储位置: {CHROMA_PATH}")
     print(f"\n  下一步:")
     print(f"    1. 启动服务: cd kb_service && python3 main.py")
     print(f"    2. 测试接口: curl http://localhost:8000/api/kb/health")

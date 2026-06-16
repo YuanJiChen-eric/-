@@ -9,7 +9,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from faiss_store import store
+from chroma_store import store
 import uvicorn
 
 # ─────────────── 数据模型 ───────────────
@@ -135,6 +135,7 @@ async def search_knowledge(req: SearchRequest):
 if __name__ == "__main__":
     print("=" * 50)
     print("🚀 运维知识库服务启动中...")
+    print(f"   引擎: ChromaDB + BGE-M3")
     print(f"   端口: 8000")
     print(f"   健康检查: http://localhost:8000/api/kb/health")
     print(f"   知识库条数: {store.count()}")

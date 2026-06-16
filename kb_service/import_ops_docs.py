@@ -1,5 +1,5 @@
 """
-将 ops_docs/ 下的运维文档导入 FAISS 知识库
+将 ops_docs/ 下的运维文档导入 ChromaDB 知识库（通过 HTTP API）
 每篇文档按 ## 标题拆分为独立的 Q&A 条目
 """
 import os

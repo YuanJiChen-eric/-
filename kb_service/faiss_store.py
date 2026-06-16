@@ -1,6 +1,8 @@
 """
-FAISS 向量知识库封装
-替代 ChromaDB，用 FAISS 做向量存储和检索（更轻量、Apple Silicon 兼容）
+FAISS 向量知识库封装（已弃用）
+
+请使用 chroma_store.py（ChromaDB + BGE-M3）。
+本文件保留仅供回滚参考，不再被 main.py / rebuild_kb.py 引用。
 """
 import os
 # 设置 HuggingFace 国内镜像，解决国内网络无法访问 huggingface.co 的问题
