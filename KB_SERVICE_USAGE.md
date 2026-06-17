@@ -1,20 +1,22 @@
 # 运维知识库服务（kb_service）使用文档
 
-> 成员 C（数据工程师 & 知识库运营）| 更新时间：2026-06-07（终版，含交接步骤）
+> 成员 C（数据工程师 & 知识库运营）| 更新时间：2026-06-17
+>
+> **最新完整指南**：请参阅 [`kb_service/README.md`](kb_service/README.md)（含第三～五阶段脚本说明）
 
 ---
 
 ## 一、这是什么？
 
-一个基于 **FAISS 向量检索** 的运维知识库服务，用 Python FastAPI 编写，运行在 `8000` 端口。
+一个基于 **ChromaDB + BGE-M3 向量检索** 的运维知识库服务，用 Python FastAPI 编写，运行在 `8000` 端口。
 
 **核心能力**：把运维工单的处理结果存成向量，当遇到相似问题时能秒级检索出历史答案。
 
 **技术栈**：
 - Python 3.12 + FastAPI
-- FAISS（向量索引引擎）
-- Sentence-Transformers `all-MiniLM-L6-v2`（384维语义向量）
-- HuggingFace 国内镜像加速
+- ChromaDB（向量数据库，持久化目录 `chroma_kb_store/`）
+- BGE-M3（1024 维中文语义向量，ModelScope 国内镜像下载）
+- 数据流水线：`data_clean.py` → `ingest.py` → `rebuild_kb.py`
 
 ---
 
@@ -26,27 +28,35 @@
 
 | 文件 | 作用 | 谁需要关心 |
 |------|------|-----------|
-| `main.py` | **FastAPI 服务主程序**。暴露 4 个 API 端点（health/count/search/add），集成去重逻辑，处理请求校验和响应。 | 成员 A、B |
-| `faiss_store.py` | **FAISS 向量存储封装**。负责 Embedding 向量化、索引增删查、语义去重、持久化到磁盘。是整个知识库的引擎核心。 | 成员 C |
-| `seed_data.py` | **种子数据生成脚本**。包含 10 大类 500+ 条运维 FAQ，初次部署时运行它来灌入数据。支持 `expand_to_500()` 自动扩充到 500+ 条。 | 成员 C |
-| `rebuild_kb.py` | **知识库一键重建脚本**。三步操作：清空索引 → 重新导入种子数据（500条）→ 智能切片导入 ops_docs/ 下的 8 份运维文档（按 `###` 标题切分为 91 个语义块）。首次部署或知识库数据损坏时使用。 | 成员 C |
-| `import_ops_docs.py` | **在线导入 ops_docs 脚本**（备用方案）。当 kb_service 已经在运行时，通过 HTTP POST 逐条导入 ops_docs/ 的运维文档。不推荐手动使用，优先用 `rebuild_kb.py` 一键重建。 | 成员 C |
-| `requirements.txt` | **Python 依赖清单**。列出 `fastapi`、`sentence-transformers`、`faiss-cpu` 等必要包。新机器上 `pip3 install -r requirements.txt` 一键安装。 | 所有成员 |
+| `main.py` | **FastAPI 服务主程序**。暴露 4 个 API 端点（health/count/search/add），集成去重逻辑。 | 成员 A、B |
+| `chroma_store.py` | **ChromaDB 向量存储封装**。BGE-M3 Embedding、增删查、语义去重、持久化。 | 成员 C |
+| `data_clean.py` | **Markdown 清洗**（第二阶段）。去噪、结构化、保护 URL/命令/状态码 → `ops_docs_clean/` | 成员 C |
+| `ingest.py` | **切片入库**（第三阶段）。按 `###` 语义切分 + 元数据注入 + 向量化。 | 成员 C |
+| `feedback_loop.py` | **反馈闭环演示**（第四阶段）。CSV 待处理队列 → 人工答案 → 自动入库。 | 成员 C |
+| `download_model.py` | **BGE-M3 模型下载**（ModelScope 镜像，跳过 ONNX 大包）。 | 成员 C |
+| `seed_data.py` | **种子 FAQ**（500+ 条，10 大类）。 | 成员 C |
+| `rebuild_kb.py` | **一键重建**。清空 → 种子 FAQ → 导入 ops_docs_clean/。 | 成员 C |
+| `import_ops_docs.py` | **在线 HTTP 导入**（备用，服务运行中时使用）。 | 成员 C |
+| `requirements.txt` | Python 依赖（chromadb、sentence-transformers、modelscope 等）。 | 所有成员 |
+| `README.md` | **全员运行指南**（第五阶段交付）。 | 所有成员 |
 
-### faiss_store/（向量索引持久化目录）
+### chroma_kb_store/（向量索引持久化目录）
 
-| 文件 | 作用 |
-|------|------|
-| `index.faiss` | **FAISS 向量索引文件**（二进制）。存储所有知识条目的 384 维语义向量，用于快速相似度搜索。 |
-| `metadata.json` | **元数据文件**（JSON）。存储每条记录的 ID、问题、答案、分类标签。可读可编辑。 |
+| 说明 |
+|------|
+| ChromaDB 本地持久化目录，包含 `ops_knowledge` 集合。 |
+| 被 `.gitignore` 忽略，新机器需运行 `download_model.py` + `rebuild_kb.py` 重建。 |
 
-> ⚠️ 这两个文件是知识库的"物理存储"，请勿手动删除，除非要重建知识库。
+> ⚠️ 请勿手动删除，除非要重建知识库。重建前需先停止 `main.py`。
 
 ### ops_docs/（运维文档库 — 知识原料）
 
 | 文件 | 内容范围 | 切分块数 |
 |------|---------|---------|
-| `nginx-troubleshooting.md` | Nginx 启动失败、502/504 错误、HTTPS 配置、性能调优、负载均衡、安全加固 | ~11 块 |
+| `account-management.md` | 账号冻结/解冻、密码重置、运维账号 CRUD | ~15 块 |
+| `common-fault-handling.md` | 服务无法启动、DB 超时、网络故障、转人工 | ~13 块 |
+| `system-operation-manual.md` | 三服务架构、API 操作、数据飞轮 | ~11 块 |
+| `nginx-troubleshooting.md` | Nginx 502/504、HTTPS、负载均衡 | ~12 块 |
 | `docker-operations.md` | 容器/镜像管理、重启排查（exit code 0/1/137/139/143）、OOM 修复、磁盘清理、网络问题、Docker Compose | ~13 块 |
 | `mysql-maintenance.md` | MySQL 连接、慢查询、主从复制、备份恢复、性能调优 | ~12 块 |
 | `linux-system-admin.md` | 系统监控、进程管理、磁盘管理、用户权限、定时任务 | ~11 块 |
@@ -55,7 +65,7 @@
 | `backup-recovery.md` | 备份策略、数据恢复、灾备演练 | ~10 块 |
 | `incident-response.md` | 故障响应流程、升级机制、事后复盘 | ~12 块 |
 
-> 这 8 份 Markdown 文档是知识库的"原料"。`rebuild_kb.py` 会按 `###` 三级标题将它们切分为 91 个语义块，并转化为自然语言问句后导入 FAISS。新增运维文档只需放入此目录后重新运行 `rebuild_kb.py`。
+> 共 11 份 Markdown 文档（含 3 份课题专用文档）。推荐流程：`data_clean.py` 清洗 → `rebuild_kb.py` 导入 `ops_docs_clean/`。按 `###` 三级标题切分并转化为自然语言问句后入库 ChromaDB。
 
 ### Java 后端（修改的文件）
 
@@ -76,9 +86,15 @@
 
 ### 前置条件
 ```bash
-# 安装 Python 依赖（只需一次）
 cd kb_service
 pip3 install -r requirements.txt
+
+# 下载 BGE-M3 模型（约 2.1GB，首次必须）
+python3 download_model.py
+
+# 清洗 + 重建知识库
+python3 data_clean.py
+python3 rebuild_kb.py
 ```
 
 ### 启动服务
@@ -313,9 +329,9 @@ async def search_knowledge(query: str):
 
 - 初始化/重建知识库：`cd kb_service && python3 seed_data.py`
 - 清空知识库后重建：运行 `seed_data.py`，选 `y` 清空
-- 查看 FAISS 索引位置：`faiss_store/` 目录（index.faiss + metadata.json）
+- 查看 FAISS 索引位置：`chroma_kb_store/` 目录（index.faiss + metadata.json）
 - 当前种子数据覆盖 10 大类：账号认证、网络连接、服务器系统、软件应用、安全事件、硬件设备、邮件协作、数据库、DevOps、备份恢复
-- 去重逻辑已在 `faiss_store.py` 中实现，入库时自动生效
+- 去重逻辑已在 `chroma_store.py` 中实现，入库时自动生效
 
 ### 成员 D（前端开发）— 通过成员 B 的 API 使用
 
@@ -407,12 +423,12 @@ curl -s -X POST http://127.0.0.1:8000/api/kb/search \
 | 查看知识库总条数 | `curl -s http://127.0.0.1:8000/api/kb/count` |
 | 新增运维文档后重建 | `python3 rebuild_kb.py` |
 | 完全清空重建 | `python3 rebuild_kb.py`（脚本自动先 clear） |
-| 查看 FAISS 索引文件 | `ls -lh faiss_store/` |
-| 直接看元数据 | `python3 -m json.tool faiss_store/metadata.json \| head -80` |
+| 查看 FAISS 索引文件 | `ls -lh chroma_kb_store/` |
+| 直接看元数据 | `python3 -m json.tool chroma_kb_store/metadata.json \| head -80` |
 
 #### ⚠️ 注意事项
 
-- `faiss_store/` 目录被 `.gitignore` 忽略，新机器上必须运行 `rebuild_kb.py` 重新生成
+- `chroma_kb_store/` 目录被 `.gitignore` 忽略，新机器上必须运行 `rebuild_kb.py` 重新生成
 - Embedding 模型下载需要 `HF_ENDPOINT=https://hf-mirror.com`，否则可能超时
 - 如需手动添加单条知识，直接用 `POST /api/kb/add` 接口（见第四章）
 
@@ -580,7 +596,7 @@ curl http://127.0.0.1:8000/api/kb/health
 
 | 服务 | 端口 | 技术栈 |
 |------|------|--------|
-| kb_service（知识库） | 8000 | Python FastAPI + FAISS |
+| kb_service（知识库） | 8000 | Python FastAPI + ChromaDB + BGE-M3 |
 | Java 后端 | 8082 | Spring Boot + MySQL |
 | MySQL | 3306 | `ops_db` 数据库 |
 
