@@ -63,8 +63,8 @@ HF_ENDPOINT=https://hf-mirror.com /opt/anaconda3/bin/python rebuild_kb.py
 
 ## 下一阶段
 
-| 阶段 | 产出 |
-|------|------|
-| 三 | `ingest.py`（切片 + 向量化入库，与 rebuild_kb 整合） |
-| 四 | `feedback_loop.py` |
-| 五 | 全员 README |
+| 阶段 | 产出 | 状态 |
+|------|------|------|
+| 三 | `ingest.py` | ✅ 已完成 |
+| 四 | `feedback_loop.py` | ✅ 已完成 |
+| 五 | `README.md` 全员指南 | ✅ 已完成 |

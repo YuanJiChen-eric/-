@@ -29,6 +29,7 @@ def is_model_ready(path: str) -> bool:
 
 def download_via_modelscope() -> str:
     print("[download_model] 使用 ModelScope 镜像下载 BAAI/bge-m3 ...")
+    print("[download_model] 仅下载 PyTorch 权重（跳过 onnx 约 2GB，避免重复下载）")
     from modelscope import snapshot_download
 
     cache_root = os.path.join(BASE_DIR, "local_models")
@@ -36,6 +37,16 @@ def download_via_modelscope() -> str:
         "BAAI/bge-m3",
         cache_dir=cache_root,
         revision="master",
+        # 跳过 ONNX 导出（约 2.1GB）及图片，sentence-transformers 只需 PyTorch 权重
+        ignore_patterns=[
+            "onnx/**",
+            "onnx/*",
+            "*.onnx",
+            "imgs/**",
+            "*.jpg",
+            "long.jpg",
+            "README.md",
+        ],
     )
     print(f"[download_model] ModelScope 下载完成: {model_dir}")
     return model_dir
@@ -50,6 +61,7 @@ def download_via_hf_mirror() -> str:
         repo_id="BAAI/bge-m3",
         local_dir=LOCAL_MODEL_DIR,
         endpoint=os.environ.get("HF_ENDPOINT", "https://hf-mirror.com"),
+        ignore_patterns=["onnx/**", "*.onnx", "imgs/**", "*.jpg"],
     )
     print(f"[download_model] HF 镜像下载完成: {LOCAL_MODEL_DIR}")
     return LOCAL_MODEL_DIR

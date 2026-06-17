@@ -189,13 +189,24 @@ class ChromaStore:
         return self.collection.count()
 
     def clear(self):
+        import gc
+        import time
+
         try:
             self.client.delete_collection(COLLECTION_NAME)
         except Exception:
             pass
+
+        # 必须先释放 Chroma 客户端，否则 sqlite 文件仍被占用
+        self.collection = None
+        self.client = None
+        gc.collect()
+        time.sleep(0.3)
+
         if os.path.isdir(CHROMA_PATH):
             shutil.rmtree(CHROMA_PATH, ignore_errors=True)
-            os.makedirs(CHROMA_PATH, exist_ok=True)
+        os.makedirs(CHROMA_PATH, exist_ok=True)
+
         self.client = chromadb.PersistentClient(path=CHROMA_PATH)
         self._init_collection()
         print("[ChromaStore] 知识库已清空")
