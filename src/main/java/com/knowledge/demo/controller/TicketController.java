@@ -5,6 +5,9 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -14,17 +17,21 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.knowledge.demo.repository.TroubleTicketRepository;
 
 @RestController
 @RequestMapping("/api/tickets")
-@CrossOrigin(origins = "*")
+@CrossOrigin(origins = "http://localhost:5173")
 public class TicketController {
 
     @Autowired
     private TroubleTicketRepository ticketRepository;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     // 1. 查询所有待处理的工单（供后台显示）
     @GetMapping("/pending")
@@ -32,7 +39,16 @@ public class TicketController {
         return ResponseEntity.ok(ticketRepository.findByStatus("pending"));
     }
 
-    // 2. 运维人员处理工单，并同步写入知识库
+    // 2. 查询所有工单（支持按状态过滤）
+    @GetMapping
+    public ResponseEntity<?> getAllTickets(@RequestParam(required = false) String status) {
+        if (status != null && !status.isEmpty()) {
+            return ResponseEntity.ok(ticketRepository.findByStatus(status));
+        }
+        return ResponseEntity.ok(ticketRepository.findAll());
+    }
+
+    // 3. 运维人员处理工单，并同步写入知识库
     @PostMapping("/{id}/resolve")
     public ResponseEntity<?> resolveTicket(@PathVariable Long id, @RequestBody ResolveRequest request) {
         return ticketRepository.findById(id).map(ticket -> {

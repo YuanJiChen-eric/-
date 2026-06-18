@@ -8,7 +8,7 @@ spring:
   datasource:
     url: jdbc:mysql://localhost:3306/ops_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
     username: root
-    password: 'Wkm20040818@'
+    password: '123456'
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # JPA/Hibernate 配置
