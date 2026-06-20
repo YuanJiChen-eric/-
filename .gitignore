@@ -34,6 +34,10 @@ build/
 
 ### Python ###
 faiss_store/
+chroma_kb_store/
+ops_docs_clean/
+local_models/
+model_cache/
 __pycache__/
 *.pyc
 *.pyo

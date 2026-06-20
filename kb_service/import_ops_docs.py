@@ -1,6 +1,6 @@
 """
-将 ops_docs/ 下的运维文档导入 FAISS 知识库
-每篇文档按 ## 标题拆分为独立的 Q&A 条目
+将 ops_docs/ 下的运维文档导入 ChromaDB 知识库（通过 HTTP API）
+优先使用 ops_docs_clean/（data_clean.py 产出）
 """
 import os
 import re
@@ -8,7 +8,18 @@ import sys
 import requests
 import time
 
-OPS_DOCS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "ops_docs")
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OPS_DOCS_RAW = os.path.join(BASE_DIR, "ops_docs")
+OPS_DOCS_CLEAN = os.path.join(BASE_DIR, "ops_docs_clean")
+SKIP_FILES = {"课题要求.md", "运维知识库_sample.md"}
+
+if os.path.isdir(OPS_DOCS_CLEAN) and any(
+    f.endswith(".md") for f in os.listdir(OPS_DOCS_CLEAN)
+):
+    OPS_DOCS_DIR = OPS_DOCS_CLEAN
+else:
+    OPS_DOCS_DIR = OPS_DOCS_RAW
+
 KB_API = "http://127.0.0.1:8000/api/kb/add"
 
 def parse_markdown(filepath: str) -> list:
@@ -100,7 +111,11 @@ def main():
         print(f"❌ kb_service 连接失败: {e}")
         sys.exit(1)
     
-    md_files = sorted([f for f in os.listdir(OPS_DOCS_DIR) if f.endswith(".md")])
+    md_files = sorted([
+        f for f in os.listdir(OPS_DOCS_DIR)
+        if f.endswith(".md") and f not in SKIP_FILES
+    ])
+    print(f"📂 文档目录: {OPS_DOCS_DIR}")
     print(f"📂 找到 {len(md_files)} 个文档，开始导入...\n")
     
     total_added = 0
