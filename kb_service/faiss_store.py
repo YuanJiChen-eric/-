@@ -18,7 +18,7 @@ INDEX_FILE = os.path.join(FAISS_PATH, "index.faiss")
 META_FILE = os.path.join(FAISS_PATH, "metadata.json")
 
 # Embedding 模型（轻量快速，适合 Mac 8GB 内存）
-EMBEDDING_MODEL = "./local_models/sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class FaissStore:
