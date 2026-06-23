@@ -1,6 +1,5 @@
 package com.knowledge.demo.controller;
 
-
 import java.util.List;
 
 import org.mindrot.jbcrypt.BCrypt;
@@ -73,4 +72,42 @@ public class OperatorController {
     public List<Operator> getActiveOperators() {
         return operatorRepository.findByIsActive(true);
     }
+
+    // 5. 新增：运维账号登录接口
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody LoginRequest loginRequest) {
+        // 1. 根据用户名查找用户
+        Operator operator = operatorRepository.findByUsername(loginRequest.getUsername());
+        if (operator == null) {
+            return ResponseEntity.badRequest().body("用户不存在");
+        }
+        
+        // 2. 检查账户是否被冻结（软删除）
+        if (!operator.getIsActive()) {
+            return ResponseEntity.badRequest().body("该账号已被冻结，请联系管理员");
+        }
+        
+        // 3. 利用 BCrypt 安全验证密码
+        if (!BCrypt.checkpw(loginRequest.getPassword(), operator.getPassword())) {
+            return ResponseEntity.badRequest().body("用户名或密码错误");
+        }
+        
+        // 4. 安全脱敏：在返回给前端前，抹去密码 hash 值防止泄露
+        operator.setPassword(null);
+        
+        // 5. 返回登录成功的用户对象（包含它的 ID 和 RealName，供前端读取）
+        return ResponseEntity.ok(operator);
+    }
+}
+
+// 类的最下方：直接在这定义 LoginRequest！
+// 这样可以彻底删掉外部那个报错的单独 LoginRequest.java 文件，避免路径或重复类冲突！
+class LoginRequest {
+    private String username;
+    private String password;
+
+    public String getUsername() { return username; }
+    public void setUsername(String username) { this.username = username; }
+    public String getPassword() { return password; }
+    public void setPassword(String password) { this.password = password; }
 }

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Layout, Menu, Avatar, Badge, Space } from 'antd';
 import {
     MessageOutlined,
@@ -6,24 +7,40 @@ import {
     RobotOutlined,
     BellOutlined,
 } from '@ant-design/icons';
-import { BrowserRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useLocation, useNavigate } from 'react-router-dom';
 import Chat from './pages/Chat';
 import Accounts from './pages/Admin/Accounts';
 import Tickets from './pages/Admin/Tickets';
+import Login from './pages/Login';
 import './App.css';
 
 const { Header, Content, Sider, Footer } = Layout;
 
-// 菜单项配置
-const menuItems = [
-    { key: '/', icon: <MessageOutlined />, label: '智能问答' },
-    { key: '/admin/accounts', icon: <UserOutlined />, label: '账号管理' },
-    { key: '/admin/tickets', icon: <FileTextOutlined />, label: '工单处理' },
-];
-
-// 提取主布局为独立组件，这样可以使用 useLocation
+// 1. 主页面布局组件（已集成：展示真实姓名、点击退出登录、以及超级管理员菜单过滤）
 function AppLayout() {
     const location = useLocation();
+
+    // 从本地缓存读取当前登录的运维专家姓名和账号名
+    const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+    const realName = currentUser ? currentUser.realName : '管理员';
+    
+    // 💡 核心权限判断：只有 username 为 admin 的用户才是超级管理员
+    const isAdmin = currentUser && currentUser.username === 'admin';
+
+    // 退出登录函数
+    const handleLogout = () => {
+        localStorage.removeItem('currentUser'); // 擦除缓存
+        window.location.href = '/login';       // 重定向回登录
+    };
+
+    // 💡 动态生成菜单项：如果非 admin，自动隐藏账号管理和工单处理！
+    const menuItems = [
+        { key: '/', icon: <MessageOutlined />, label: '智能问答' },
+        ...(isAdmin ? [
+            { key: '/admin/accounts', icon: <UserOutlined />, label: '账号管理' },
+            { key: '/admin/tickets', icon: <FileTextOutlined />, label: '工单处理' }
+        ] : [])
+    ];
 
     return (
         <Layout style={{ minHeight: '100vh', background: 'transparent' }}>
@@ -65,10 +82,15 @@ function AppLayout() {
                     <Badge dot>
                         <BellOutlined style={{ fontSize: 18, color: '#5a5a7a', cursor: 'pointer' }} />
                     </Badge>
-                    <Avatar
-                        style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', cursor: 'pointer' }}
-                        icon={<UserOutlined />}
-                    />
+                    <Space style={{ cursor: 'pointer' }} onClick={handleLogout} title="点击退出登录">
+                        <Avatar
+                            style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}
+                            icon={<UserOutlined />}
+                        />
+                        <span style={{ fontSize: 14, color: '#5a5a7a', fontWeight: 500 }}>
+                            {realName} (退出)
+                        </span>
+                    </Space>
                 </Space>
             </Header>
 
@@ -137,8 +159,9 @@ function AppLayout() {
                 }}>
                     <Routes>
                         <Route path="/" element={<Chat />} />
-                        <Route path="/admin/accounts" element={<Accounts />} />
-                        <Route path="/admin/tickets" element={<Tickets />} />
+                        {/* 💡 路由守卫：非 admin 访问后台管理页面，直接拦截并退回智能问答主页 */}
+                        <Route path="/admin/accounts" element={isAdmin ? <Accounts /> : <Chat />} />
+                        <Route path="/admin/tickets" element={isAdmin ? <Tickets /> : <Chat />} />
                     </Routes>
                 </Content>
             </Layout>
@@ -157,11 +180,30 @@ function AppLayout() {
     );
 }
 
-// 主 App 组件只负责路由包裹
+// 2. 核心路由管理器
+function AppRoutes() {
+    const navigate = useNavigate();
+    const location = useLocation();
+
+    useEffect(() => {
+        const user = localStorage.getItem('currentUser');
+        if (!user && location.pathname !== '/login') {
+            navigate('/login');
+        }
+    }, [location.pathname, navigate]);
+
+    return (
+        <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/*" element={<AppLayout />} />
+        </Routes>
+    );
+}
+
 function App() {
     return (
         <BrowserRouter>
-            <AppLayout />
+            <AppRoutes />
         </BrowserRouter>
     );
 }

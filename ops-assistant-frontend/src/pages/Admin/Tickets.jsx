@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Table, Button, Modal, Input, message, Tag, Space, Card, Badge, Tabs } from 'antd';
-import { CheckCircleOutlined, ClockCircleOutlined, EyeOutlined, ReloadOutlined } from '@ant-design/icons';
+// 💡 导入 DeleteOutlined 图标
+import { CheckCircleOutlined, ClockCircleOutlined, EyeOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { getTickets, resolveTicket } from '../../api';
+import axios from 'axios'; // 💡 导入 axios 用于发送删除请求
 
 const { TextArea } = Input;
 
@@ -16,7 +18,6 @@ export default function Tickets() {
     const fetchTickets = async () => {
         setLoading(true);
         try {
-            // 获取所有工单（后端需要支持）
             const res = await getTickets({});
             const allData = res.data || [];
             setTickets(allData);
@@ -33,10 +34,13 @@ export default function Tickets() {
     }, []);
 
     const handleResolve = async () => {
+        const currentUser = JSON.parse(localStorage.getItem('currentUser'));
+        const activeOperatorId = currentUser ? currentUser.id : 1;
+
         try {
             await resolveTicket(currentTicket.id, {
                 resolution: solution,
-                operatorId: 1
+                operatorId: activeOperatorId
             });
             message.success('处理完成，已更新知识库');
             setResolveVisible(false);
@@ -48,11 +52,35 @@ export default function Tickets() {
         }
     };
 
-    // 根据标签页过滤工单
+    // 💡 新增：删除工单逻辑（带确认二次弹窗）
+    const handleDeleteTicket = (id) => {
+        Modal.confirm({
+            title: '确认删除',
+            icon: <DeleteOutlined style={{ color: '#ff4d4f' }} />,
+            content: `确定要删除工单 #${id} 吗？该操作不可逆。`,
+            okText: '确认删除',
+            cancelText: '取消',
+            okType: 'danger',
+            okButtonProps: { style: { borderRadius: 8 } },
+            cancelButtonProps: { style: { borderRadius: 8 } },
+            onOk: async () => {
+                try {
+                    // 调用 Java 后端的 DELETE 接口
+                    await axios.delete(`http://localhost:8082/api/tickets/${id}`);
+                    message.success('工单删除成功');
+                    fetchTickets(); // 刷新列表
+                } catch (error) {
+                    message.error('删除工单失败');
+                    console.error('删除工单错误:', error);
+                }
+            }
+        });
+    };
+
     const filteredTickets = tickets.filter(ticket => {
         if (activeTab === 'pending') return ticket.status === 'pending';
         if (activeTab === 'resolved') return ticket.status === 'resolved';
-        return true; // all
+        return true;
     });
 
     const columns = [
@@ -104,29 +132,54 @@ export default function Tickets() {
         },
         {
             title: '操作',
-            width: 120,
+            width: 180, // 💡 拓宽列宽以完美容纳两个按钮
             render: (_, record) => (
                 record.status === 'pending' ? (
-                    <Button
-                        type="primary"
-                        size="small"
-                        icon={<EyeOutlined />}
-                        onClick={() => {
-                            setCurrentTicket(record);
-                            setResolveVisible(true);
-                        }}
-                        style={{ borderRadius: 8, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
-                    >
-                        处理
-                    </Button>
+                    <Space size="middle">
+                        <Button
+                            type="primary"
+                            size="small"
+                            icon={<EyeOutlined />}
+                            onClick={() => {
+                                setCurrentTicket(record);
+                                setResolveVisible(true);
+                            }}
+                            style={{ borderRadius: 8, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
+                        >
+                            处理
+                        </Button>
+                        {/* 💡 红色删除按钮 */}
+                        <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleDeleteTicket(record.id)}
+                            style={{ borderRadius: 8 }}
+                        >
+                            删除
+                        </Button>
+                    </Space>
                 ) : (
-                    <Tag color="default" style={{ borderRadius: 12 }}>已完成</Tag>
+                    <Space size="middle">
+                        <Tag color="default" style={{ borderRadius: 12 }}>已完成</Tag>
+                        {/* 💡 红色删除记录按钮 */}
+                        <Button
+                            type="text"
+                            danger
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleDeleteTicket(record.id)}
+                            style={{ borderRadius: 8 }}
+                        >
+                            删除记录
+                        </Button>
+                    </Space>
                 )
             ),
         },
     ];
 
-    // 标签页配置
     const tabItems = [
         {
             key: 'pending',
@@ -161,18 +214,16 @@ export default function Tickets() {
 
     return (
         <div>
-            {/* 页面标题 */}
             <div style={{ marginBottom: 24 }}>
                 <h2 style={{ fontSize: 20, fontWeight: 600, color: '#1a1a2e', marginBottom: 4 }}>工单处理</h2>
                 <span style={{ color: '#8c8c8c', fontSize: 14 }}>查看并处理用户的转人工请求</span>
             </div>
 
-            {/* 统计卡片 */}
             <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
                 <Card
                     size="small"
                     style={{ flex: 1, borderRadius: 12, border: '1px solid #f0f0f0' }}
-                    bodyStyle={{ padding: '12px 16px' }}
+                    styles={{ body: { padding: '12px 16px' } }}
                 >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#8c8c8c' }}>待处理</span>
@@ -182,7 +233,7 @@ export default function Tickets() {
                 <Card
                     size="small"
                     style={{ flex: 1, borderRadius: 12, border: '1px solid #f0f0f0' }}
-                    bodyStyle={{ padding: '12px 16px' }}
+                    styles={{ body: { padding: '12px 16px' } }}
                 >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#8c8c8c' }}>已处理</span>
@@ -192,7 +243,7 @@ export default function Tickets() {
                 <Card
                     size="small"
                     style={{ flex: 1, borderRadius: 12, border: '1px solid #f0f0f0' }}
-                    bodyStyle={{ padding: '12px 16px' }}
+                    styles={{ body: { padding: '12px 16px' } }}
                 >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <span style={{ color: '#8c8c8c' }}>总计</span>
@@ -208,7 +259,6 @@ export default function Tickets() {
                 </Button>
             </div>
 
-            {/* 标签页切换 */}
             <Tabs
                 activeKey={activeTab}
                 onChange={setActiveTab}
@@ -216,7 +266,6 @@ export default function Tickets() {
                 style={{ marginBottom: 16 }}
             />
 
-            {/* 工单列表 */}
             <Table
                 columns={columns}
                 dataSource={filteredTickets}
@@ -227,7 +276,6 @@ export default function Tickets() {
                 rowClassName={(record) => record.status === 'pending' ? 'pending-row' : ''}
             />
 
-            {/* 处理弹窗 */}
             <Modal
                 title={
                     <span style={{ fontSize: 18, fontWeight: 600 }}>

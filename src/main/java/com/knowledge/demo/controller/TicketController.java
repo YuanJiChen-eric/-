@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.web.bind.annotation.DeleteMapping;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -46,6 +47,15 @@ public class TicketController {
             return ResponseEntity.ok(ticketRepository.findByStatus(status));
         }
         return ResponseEntity.ok(ticketRepository.findAll());
+    }
+
+    // 3. 删：删除工单（支持管理员删除废弃/重复工单）
+    @DeleteMapping("/{id}")
+    public ResponseEntity<?> deleteTicket(@PathVariable Long id) {
+        return ticketRepository.findById(id).map(ticket -> {
+            ticketRepository.delete(ticket);
+            return ResponseEntity.ok("工单已成功删除");
+        }).orElse(ResponseEntity.notFound().build());
     }
 
     // 3. 运维人员处理工单，并同步写入知识库
