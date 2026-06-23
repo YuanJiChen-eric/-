@@ -24,6 +24,7 @@ class AddKnowledgeRequest(BaseModel):
     answer: str = Field(..., description="人工修正后的正确答案", min_length=1)
     skip_if_duplicate: bool = Field(default=True, description="是否开启语义去重（默认开启）")
     dedup_threshold: float = Field(default=0.90, ge=0.5, le=1.0, description="去重相似度阈值")
+    metadata: dict | None = Field(default=None, description="附加元数据，如 ticket_id、source")
 
 class AddKnowledgeResponse(BaseModel):
     success: bool
@@ -52,12 +53,25 @@ class SearchResponse(BaseModel):
 class CountResponse(BaseModel):
     status: str
     total_records: int
+    active_records: int
     collection: str
 
 class HealthResponse(BaseModel):
     status: str
     service: str
     records: int
+    active_records: int
+
+class SoftDeleteRequest(BaseModel):
+    """软删除知识条目（工单删除时由 Java 调用）"""
+    id: str | None = Field(default=None, description="知识库条目 ID，如 kb_ticket_42")
+    ticket_id: int | str | None = Field(default=None, description="工单 ID，将定位 kb_ticket_{id}")
+
+class SoftDeleteResponse(BaseModel):
+    success: bool
+    id: str | None = None
+    message: str
+    already_inactive: bool = False
 
 class RAGRequest(BaseModel):
     """RAG问答请求"""
@@ -94,7 +108,8 @@ async def health_check():
     return HealthResponse(
         status="ok",
         service="运维知识库服务",
-        records=store.count()
+        records=store.count(),
+        active_records=store.count_active(),
     )
 
 @app.get("/api/kb/count", response_model=CountResponse)
@@ -103,6 +118,7 @@ async def get_count():
     return CountResponse(
         status="ok",
         total_records=store.count(),
+        active_records=store.count_active(),
         collection="ops_knowledge"
     )
 
@@ -119,6 +135,7 @@ async def add_knowledge(req: AddKnowledgeRequest):
         result = store.add(
             question=req.question,
             answer=req.answer,
+            metadata=req.metadata,
             dedup=req.skip_if_duplicate,
             dedup_threshold=req.dedup_threshold
         )
@@ -145,6 +162,25 @@ async def search_knowledge(req: SearchRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"检索失败: {str(e)}")
+
+@app.post("/api/kb/soft-delete", response_model=SoftDeleteResponse)
+async def soft_delete_knowledge(req: SoftDeleteRequest):
+    """
+    软删除知识条目（标记 active=false，检索时自动忽略）
+    工单删除时由 Java TicketController 调用
+    """
+    if not req.id and req.ticket_id is None:
+        raise HTTPException(status_code=400, detail="必须提供 id 或 ticket_id")
+    try:
+        result = store.soft_delete(doc_id=req.id, ticket_id=req.ticket_id)
+        return SoftDeleteResponse(
+            success=result["success"],
+            id=result.get("id"),
+            message=result["message"],
+            already_inactive=result.get("already_inactive", False),
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"软删除失败: {str(e)}")
 
 @app.post("/api/rag")
 async def rag_chat(req: RAGRequest):

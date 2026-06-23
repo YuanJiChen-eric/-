@@ -6,9 +6,9 @@ spring:
     name: demo
   # 数据库连接配置
   datasource:
-    url: jdbc:mysql://localhost:3306/ops_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=UTF-8
+    url: jdbc:mysql://localhost:3306/ops_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
     username: root
-    password: '123456'
+    password: "Wkm20040818@" # 请替换为你的本地 MySQL 密码
     driver-class-name: com.mysql.cj.jdbc.Driver
 
   # JPA/Hibernate 配置
