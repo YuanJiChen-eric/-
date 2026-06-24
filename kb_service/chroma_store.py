@@ -68,6 +68,24 @@ def _distance_to_score(distance: float) -> float:
     return max(0.0, min(1.0, 1.0 - float(distance)))
 
 
+def _is_active(meta: dict | None) -> bool:
+    """未标记 active 的历史记录视为有效"""
+    if not meta:
+        return True
+    active = meta.get("active")
+    if active is None:
+        return True
+    if isinstance(active, bool):
+        return active
+    if isinstance(active, str):
+        return active.lower() not in ("false", "0", "no")
+    return bool(active)
+
+
+def _ticket_doc_id(ticket_id: str | int) -> str:
+    return f"kb_ticket_{ticket_id}"
+
+
 class ChromaStore:
     """ChromaDB 向量存储管理（接口与 FaissStore 兼容）"""
 
@@ -111,9 +129,14 @@ class ChromaStore:
                         "score": r["score"],
                     }
 
-        doc_id = f"kb_{self.count() + 1}"
-        text = f"问题：{question}\n答案：{answer}"
         meta = dict(metadata or {})
+        meta.setdefault("active", True)
+        ticket_id = meta.get("ticket_id")
+        if ticket_id:
+            doc_id = _ticket_doc_id(ticket_id)
+        else:
+            doc_id = f"kb_{self.count() + 1}"
+        text = f"问题：{question}\n答案：{answer}"
         meta.update({"id": doc_id, "question": question, "answer": answer})
 
         self.collection.add(
@@ -152,15 +175,15 @@ class ChromaStore:
         )
         return {"added": added, "skipped": skipped, "details": details}
 
-    def search(self, query: str, top_k: int = 5) -> list:
+    def search(self, query: str, top_k: int = 5, active_only: bool = True) -> list:
         total = self.count()
         if total == 0:
             return []
 
-        actual_k = min(top_k, total)
+        fetch_k = min(max(top_k * 5, top_k), total)
         results = self.collection.query(
             query_texts=[query],
-            n_results=actual_k,
+            n_results=fetch_k,
             include=["metadatas", "documents", "distances"],
         )
 
@@ -171,6 +194,8 @@ class ChromaStore:
 
         for i, doc_id in enumerate(ids):
             meta = metadatas[i] or {}
+            if active_only and not _is_active(meta):
+                continue
             score = round(_distance_to_score(distances[i]), 4)
             question = meta.get("question", "")
             answer = meta.get("answer", "")
@@ -183,10 +208,58 @@ class ChromaStore:
                     "document": f"问题：{question}\n答案：{answer}",
                 }
             )
+            if len(output) >= top_k:
+                break
         return output
+
+    def soft_delete(
+        self,
+        doc_id: str | None = None,
+        ticket_id: str | int | None = None,
+    ) -> dict:
+        """软删除：标记 active=false，检索与去重时自动忽略"""
+        target_id = doc_id
+        if ticket_id is not None:
+            target_id = _ticket_doc_id(ticket_id)
+        if not target_id:
+            return {"success": False, "message": "必须提供 id 或 ticket_id"}
+
+        existing = self.collection.get(ids=[target_id], include=["metadatas"])
+        if not existing.get("ids"):
+            return {
+                "success": False,
+                "message": f"知识条目不存在: {target_id}",
+                "id": target_id,
+            }
+
+        meta = dict(existing["metadatas"][0] or {})
+        if not _is_active(meta):
+            return {
+                "success": True,
+                "message": f"知识条目已是停用状态 (ID: {target_id})",
+                "id": target_id,
+                "already_inactive": True,
+            }
+
+        meta["active"] = False
+        self.collection.update(ids=[target_id], metadatas=[meta])
+        print(f"[ChromaStore] 🗑️ 已软删除: {target_id}")
+        return {
+            "success": True,
+            "message": f"知识条目已停用 (ID: {target_id})",
+            "id": target_id,
+            "already_inactive": False,
+        }
 
     def count(self) -> int:
         return self.collection.count()
+
+    def count_active(self) -> int:
+        total = self.count()
+        if total == 0:
+            return 0
+        all_meta = self.collection.get(include=["metadatas"])["metadatas"]
+        return sum(1 for m in all_meta if _is_active(m))
 
     def clear(self):
         import gc

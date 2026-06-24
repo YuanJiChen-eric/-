@@ -30,5 +30,8 @@ public class TroubleTicket {
     @Column(columnDefinition = "TEXT")
     private String resolution;      // 人工填写的解决方案
 
+    /** 工单处理同步到知识库后返回的条目 ID（如 kb_ticket_42） */
+    private String kbEntryId;
+
     private LocalDateTime createdAt = LocalDateTime.now();
 }
