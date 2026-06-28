@@ -4,7 +4,7 @@
 切片策略：
   - 主策略：按 ### 三级标题语义切分（不在句中截断）
   - 辅策略：超长块（>1500 字）用 RecursiveCharacterTextSplitter 二次切分
-  - 元数据：source / type / category / date 注入每条记录
+  - 元数据：source / type / category；date 仅来自 frontmatter（kb_date），不默认填导入日
 
 用法：
   # 追加导入单个文档（服务运行中也可）
@@ -20,7 +20,6 @@ import argparse
 import os
 import re
 import shutil
-from datetime import date
 
 os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 
@@ -29,7 +28,7 @@ CHROMA_PATH = os.path.join(BASE_DIR, "chroma_kb_store")
 OPS_DOCS_RAW = os.path.join(BASE_DIR, "ops_docs")
 OPS_DOCS_CLEAN = os.path.join(BASE_DIR, "ops_docs_clean")
 
-SKIP_FILES = {"课题要求.md", "运维知识库_sample.md"}
+SKIP_FILES = {"课题要求.md", "运维知识库_sample.md", "README.md"}
 
 # LangChain 二次切分参数（课题建议值）
 CHUNK_SIZE = 512
@@ -97,11 +96,52 @@ def _split_long_body(body: str) -> list[str]:
         return parts or [body]
 
 
+def _parse_frontmatter(content: str) -> tuple[dict, str]:
+    """
+    解析 YAML 风格 frontmatter（测试文档用）
+    支持字段：kb_date / kb_version / kb_priority / kb_scenario
+    也支持不带 kb_ 前缀的 date / version / priority / scenario
+    """
+    meta: dict = {}
+    body = content
+    if not content.startswith("---"):
+        return meta, body
+    end = content.find("\n---", 3)
+    if end == -1:
+        return meta, body
+    block = content[3:end].strip()
+    body = content[end + 4:].lstrip("\n")
+    for line in block.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            continue
+        key, val = line.split(":", 1)
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if key.startswith("kb_"):
+            key = key[3:]
+        meta[key] = val
+    return meta, body
+
+
+def _meta_int(meta: dict, key: str, default: int) -> int:
+    val = meta.get(key)
+    if val is None or val == "":
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
 def parse_markdown_file(filepath: str) -> list[dict]:
     """解析 Markdown，返回带元数据的 Q&A 块列表"""
     with open(filepath, "r", encoding="utf-8") as f:
-        content = f.read()
+        raw = f.read()
 
+    file_meta, content = _parse_frontmatter(raw)
     filename = os.path.basename(filepath)
     doc_name = filename.replace(".md", "")
     title_match = re.match(r"^#\s+(.+)", content)
@@ -109,7 +149,7 @@ def parse_markdown_file(filepath: str) -> list[dict]:
         doc_name = title_match.group(1).strip()
 
     source_id = filename.replace(".md", "")
-    today = date.today().isoformat()
+    scenario = file_meta.get("scenario", source_id)
     chunks: list[dict] = []
 
     sections = re.split(r"\n(?=## )", content)
@@ -140,29 +180,40 @@ def parse_markdown_file(filepath: str) -> list[dict]:
 
             for i, part in enumerate(_split_long_body(body)):
                 q = question if i == 0 else f"{question}（第{i + 1}部分）"
+                chunk_meta = {
+                    "source": source_id,
+                    "type": "ops_doc",
+                    "category": h2_title,
+                    "doc_title": doc_name,
+                    "source_file": filename,
+                    "priority": _meta_int(file_meta, "priority", 100),
+                    "version": _meta_int(file_meta, "version", 1),
+                    "test_scenario": scenario,
+                }
+                # 仅 frontmatter 显式标注时才写入 date；勿用导入当天冒充文档修订日
+                if file_meta.get("date"):
+                    chunk_meta["date"] = file_meta["date"]
                 chunks.append({
                     "question": q,
                     "answer": part,
-                    "metadata": {
-                        "source": source_id,
-                        "type": "ops_doc",
-                        "category": h2_title,
-                        "date": today,
-                        "doc_title": doc_name,
-                    },
+                    "metadata": chunk_meta,
                 })
     return chunks
 
 
-def ingest_file(filepath: str, store, dedup: bool = False) -> dict:
+def ingest_file(filepath: str, store, dedup: bool = False, handle_conflicts: bool = True) -> dict:
     pairs = parse_markdown_file(filepath)
-    result = store.batch_add(pairs, dedup=dedup)
+    result = store.batch_add(
+        pairs,
+        dedup=dedup,
+        handle_conflicts=handle_conflicts,
+    )
     result["file"] = os.path.basename(filepath)
     result["chunks"] = len(pairs)
     return result
 
 
-def ingest_directory(docs_dir: str, store, dedup: bool = False) -> dict:
+def ingest_directory(docs_dir: str, store, dedup: bool = False, handle_conflicts: bool = True) -> dict:
     total_added = 0
     total_skipped = 0
     files = sorted(
@@ -170,7 +221,7 @@ def ingest_directory(docs_dir: str, store, dedup: bool = False) -> dict:
         if f.endswith(".md") and f not in SKIP_FILES
     )
     for name in files:
-        r = ingest_file(os.path.join(docs_dir, name), store, dedup=dedup)
+        r = ingest_file(os.path.join(docs_dir, name), store, dedup=dedup, handle_conflicts=handle_conflicts)
         total_added += r["added"]
         total_skipped += r["skipped"]
         print(f"  ✓ {name}: {r['added']} 块")

@@ -18,7 +18,7 @@ import unicodedata
 from pathlib import Path
 
 # 非知识库文档，清洗时跳过
-SKIP_FILES = {"课题要求.md"}
+SKIP_FILES = {"课题要求.md", "README.md"}
 
 # 需保护的实体模式（清洗时标记占位，最后再还原）
 PLACEHOLDER_PREFIX = "⟦ENT"

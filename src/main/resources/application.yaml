@@ -1,12 +1,19 @@
 server:
   port: 8082  # 修改端口号为 8082
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+      force-request: true
+      force-response: true
 
 spring:
   application:
     name: demo
   # 数据库连接配置
   datasource:
-    url: jdbc:mysql://localhost:3306/ops_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true
+    url: jdbc:mysql://localhost:3306/ops_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true
     username: root
     password: "Wkm20040818@" # 请替换为你的本地 MySQL 密码
     driver-class-name: com.mysql.cj.jdbc.Driver

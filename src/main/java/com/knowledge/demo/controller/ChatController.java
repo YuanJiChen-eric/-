@@ -2,6 +2,7 @@ package com.knowledge.demo.controller;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -11,7 +12,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -35,7 +35,7 @@ public class ChatController {
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @PostMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(@RequestBody ChatRequest request) {
         SseEmitter emitter = new SseEmitter(600000L); 
 
@@ -51,21 +51,28 @@ public class ChatController {
                 HttpRequest pyRequest = HttpRequest.newBuilder()
                         .uri(URI.create("http://127.0.0.1:8001/api/rag"))
                         .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(requestBody, java.nio.charset.StandardCharsets.UTF_8)) 
+                        .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
                         .build();
 
                 client.sendAsync(pyRequest, HttpResponse.BodyHandlers.ofInputStream())
                     .thenAccept(response -> {
-                        try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body()))) {
+                        try (BufferedReader reader = new BufferedReader(
+                                new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                             String line;
                             while ((line = reader.readLine()) != null) {
                                 if (line.startsWith("data:")) {
-                                    String content = line.substring(5).trim();
-                                    
+                                    String content = line.substring(5);
+                                    if (content.startsWith(" ")) {
+                                        content = content.substring(1);
+                                    }
+
                                     if ("[DONE]".equals(content)) {
                                         break;
                                     }
-                                    
+
+                                    if (!fullResponse.isEmpty()) {
+                                        fullResponse.append("\n");
+                                    }
                                     fullResponse.append(content);
                                     emitter.send(SseEmitter.event().data(content));
                                 }
@@ -158,11 +165,24 @@ class ChatRequest {
     private String query;
     private Integer topK = 5;
     private Boolean stream = true;
-    
+    private List<HistoryMessage> history;
+
     public String getQuery() { return query; }
     public void setQuery(String query) { this.query = query; }
     public Integer getTopK() { return topK; }
     public void setTopK(Integer topK) { this.topK = topK; }
     public Boolean getStream() { return stream; }
     public void setStream(Boolean stream) { this.stream = stream; }
+    public List<HistoryMessage> getHistory() { return history; }
+    public void setHistory(List<HistoryMessage> history) { this.history = history; }
+}
+
+class HistoryMessage {
+    private String role;
+    private String content;
+
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
 }
