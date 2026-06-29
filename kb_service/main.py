@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from chroma_store import store
+from kb_conflict import MAX_ANSWERS_PER_QUERY
 import uvicorn
 import json
 import time
@@ -24,6 +25,10 @@ class AddKnowledgeRequest(BaseModel):
     answer: str = Field(..., description="人工修正后的正确答案", min_length=1)
     skip_if_duplicate: bool = Field(default=True, description="是否开启语义去重（默认开启）")
     dedup_threshold: float = Field(default=0.90, ge=0.5, le=1.0, description="去重相似度阈值")
+    handle_conflicts: bool = Field(default=True, description="导入矛盾检测与优先级仲裁")
+    conflict_threshold: float = Field(
+        default=0.80, ge=0.5, le=1.0, description="矛盾检测相似度阈值"
+    )
     metadata: dict | None = Field(default=None, description="附加元数据，如 ticket_id、source")
 
 class AddKnowledgeResponse(BaseModel):
@@ -31,12 +36,19 @@ class AddKnowledgeResponse(BaseModel):
     id: str
     message: str
     duplicate: bool = False
+    conflict: bool = False
+    action: str = "added"
     score: float | None = None
     existing_question: str | None = None
+    superseded_ids: list[str] = Field(default_factory=list)
 
 class SearchRequest(BaseModel):
     query: str = Field(..., description="搜索查询", min_length=1)
     top_k: int = Field(5, ge=1, le=20, description="返回条数")
+    sort_by_priority: bool = Field(True, description="按优先级/版本/日期排序")
+    max_answers: int | None = Field(
+        None, ge=1, le=20, description="最多返回条数（默认等于 top_k）"
+    )
 
 class SearchResult(BaseModel):
     id: str = ""
@@ -44,6 +56,9 @@ class SearchResult(BaseModel):
     answer: str
     score: float
     document: str
+    priority: int | None = None
+    version: int | None = None
+    date: str | None = None
 
 class SearchResponse(BaseModel):
     query: str
@@ -129,7 +144,7 @@ async def add_knowledge(req: AddKnowledgeRequest):
     此接口由 Java 后端（TicketController.resolve()）调用
     实现"处理完成后再自动完善知识库"的反馈闭环
 
-    去重逻辑：默认开启，相似度 ≥ 0.90 的已有记录会被跳过
+    去重逻辑：相似度 ≥ 阈值时，答案相同则跳过；答案矛盾则按 priority 覆盖或保留旧条
     """
     try:
         result = store.add(
@@ -137,24 +152,34 @@ async def add_knowledge(req: AddKnowledgeRequest):
             answer=req.answer,
             metadata=req.metadata,
             dedup=req.skip_if_duplicate,
-            dedup_threshold=req.dedup_threshold
+            dedup_threshold=req.dedup_threshold,
+            handle_conflicts=req.handle_conflicts,
+            conflict_threshold=req.conflict_threshold,
         )
         return AddKnowledgeResponse(
             success=True,
             id=result["id"],
             message=result["message"],
             duplicate=result.get("duplicate", False),
+            conflict=result.get("conflict", False),
+            action=result.get("action", "added"),
             score=result.get("score"),
-            existing_question=result.get("existing_question")
+            existing_question=result.get("existing_question"),
+            superseded_ids=result.get("superseded_ids") or [],
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"入库失败: {str(e)}")
 
 @app.post("/api/kb/search", response_model=SearchResponse)
 async def search_knowledge(req: SearchRequest):
-    """检索知识库（调试用，也可供成员A联调）"""
+    """检索知识库（按 priority → version → date → 相似度排序）"""
     try:
-        results = store.search(query=req.query, top_k=req.top_k)
+        results = store.search(
+            query=req.query,
+            top_k=req.top_k,
+            sort_by_priority=req.sort_by_priority,
+            max_answers=req.max_answers,
+        )
         return SearchResponse(
             query=req.query,
             results=[SearchResult(**r) for r in results],
@@ -197,7 +222,12 @@ async def rag_chat(req: RAGRequest):
     """
     try:
         # Step 1: 检索相关知识
-        results = store.search(query=req.query, top_k=req.top_k)
+        results = store.search(
+            query=req.query,
+            top_k=max(req.top_k, MAX_ANSWERS_PER_QUERY),
+            sort_by_priority=True,
+            max_answers=MAX_ANSWERS_PER_QUERY,
+        )
 
         if not results:
             # 知识库中没有任何相关内容
@@ -283,56 +313,40 @@ async def stream_answer(answer: str):
 
 
 def generate_mock_answer(query: str, results: list) -> str:
-    """
-    生成模拟回答（临时方案）
-
-    实际部署时应替换为：
-    - Ollama (推荐): llama3.1, qwen2.5-coder
-    - DeepSeek Coder
-    - Qwen2.5-7B-Instruct
-    """
+    """按优先级排序后，最多展示三条参考答案"""
     if len(results) == 0:
         return "抱歉，没有找到相关知识。建议您转人工处理，我们的运维专家会尽快为您解答。"
 
-    # 找到最相关的结果（相似度最高的）
-    best_result = max(results, key=lambda x: x['score'])
+    top_results = results[:MAX_ANSWERS_PER_QUERY]
 
-    # 检查相似度是否足够高
-    if best_result['score'] < 0.65:
-        return f"知识库中有一些可能相关的信息，但匹配度不高。\n\n**相关参考：**\n{best_result['question']}\n{best_result['answer'][:200]}...\n\n如果这不能解决您的问题，建议转人工处理。"
+    if top_results[0]["score"] < 0.65:
+        best = top_results[0]
+        return (
+            f"知识库中有一些可能相关的信息，但匹配度不高。\n\n"
+            f"**相关参考：**\n{best['question']}\n{best['answer'][:200]}...\n\n"
+            f"如果这不能解决您的问题，建议转人工处理。"
+        )
 
-    # 构建更自然的回答
-    answer = ""
+    lines = ["根据知识库检索结果（按优先级从高到低），供您参考：\n"]
+    for i, r in enumerate(top_results, 1):
+        prio = r.get("priority", "—")
+        ver = r.get("version")
+        date = r.get("date")
+        tag_parts = [f"priority={prio}"]
+        if ver is not None:
+            tag_parts.append(f"v={ver}")
+        if date:
+            tag_parts.append(f"date={date}")
+        tag = ", ".join(tag_parts)
+        lines.append(
+            f"### 参考 {i}（{tag}，相似度 {r['score']:.0%}）\n\n"
+            f"**{r['question']}**\n\n{r['answer']}\n"
+        )
 
-    # 根据相似度决定回答方式
-    if best_result['score'] >= 0.85:
-        # 高置信度：直接给出答案
-        answer = f"根据知识库中的相关信息，我来为您解答：\n\n"
-        answer += f"**{best_result['question']}**\n\n"
-        answer += best_result['answer']
-
-        # 如果有其他相关结果，作为补充
-        if len(results) > 1 and results[1]['score'] >= 0.70:
-            second_best = results[1]
-            answer += f"\n\n---\n\n**补充说明：**\n"
-            answer += f"关于「{second_best['question']}」，您也可以参考：\n"
-            answer += second_best['answer'][:300]
-            if len(second_best['answer']) > 300:
-                answer += "..."
-    else:
-        # 中等置信度：提示用户这是相似问题的答案
-        answer = f"我在知识库中找到了一些相关问题，供您参考：\n\n"
-        answer += f"**相关问题：** {best_result['question']}\n\n"
-        answer += f"**参考答案：**\n{best_result['answer']}\n\n"
-
-        if len(results) > 1:
-            answer += f"\n**其他可能相关的信息：**\n"
-            for i, r in enumerate(results[1:3], 1):
-                answer += f"{i}. {r['question']}\n   {r['answer'][:150]}...\n\n"
-
-    answer += f"\n\n---\n*以上信息来自运维知识库，如未能解决您的问题，请点击'转人工'按钮。*"
-
-    return answer
+    lines.append(
+        "\n---\n*以上信息来自运维知识库，如未能解决您的问题，请点击「转人工」。*"
+    )
+    return "\n".join(lines)
 
 
 # 在文件顶部添加导入

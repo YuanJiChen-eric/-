@@ -36,7 +36,13 @@ export default function Chat() {
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify({ query: input }),
+                body: JSON.stringify({
+                    query: input,
+                    history: messages.map((m) => ({
+                        role: m.role,
+                        content: m.content,
+                    })),
+                }),
             });
 
             if (!response.ok) {
@@ -44,7 +50,7 @@ export default function Chat() {
             }
 
             const reader = response.body.getReader();
-            const decoder = new TextDecoder();
+            const decoder = new TextDecoder('utf-8');
             let accumulatedText = '';
             const aiMsgId = Date.now();
 
@@ -78,10 +84,13 @@ export default function Chat() {
                     }
                     
                     if (line.startsWith('data:')) {
-                        const content = line.substring(5).trim();
+                        let content = line.substring(5);
+                        if (content.startsWith(' ')) {
+                            content = content.slice(1);
+                        }
                         if (content === '[DONE]') continue;
-                        
-                        accumulatedText += content;
+
+                        accumulatedText += (accumulatedText ? '\n' : '') + content;
                         
                         setMessages(prev => 
                             prev.map(msg => 
