@@ -4,6 +4,7 @@ from datetime import datetime
 
 from kb_conflict import (
     coexist_priority_boost,
+    filter_and_rank_search_results,
     parse_date,
     parse_version,
     plan_import_action,
@@ -92,6 +93,43 @@ def get_priority_from_row(row):
     from kb_conflict import get_priority
 
     return get_priority(row.get("metadata"))
+
+
+class TestFilterAndRankSearch(unittest.TestCase):
+    """回归：高 priority 低分 FAQ 不应挤掉语义相关条目（椰奶等同义问法）"""
+
+    def _row(self, rid, score, priority, question=""):
+        return {
+            "id": rid,
+            "score": score,
+            "priority": priority,
+            "question": question,
+            "answer": "",
+            "metadata": {"priority": priority},
+        }
+
+    def test_low_score_high_priority_filtered_before_sort(self):
+        candidates = [
+            self._row("faq", 0.30, 80, "账号冻结"),
+            self._row("ticket_a", 0.74, 60, "啥是椰奶"),
+            self._row("ticket_b", 0.69, 61, "椰奶！"),
+        ]
+        out = filter_and_rank_search_results(
+            candidates, limit=3, sort_by_priority=True
+        )
+        ids = [r["id"] for r in out]
+        self.assertNotIn("faq", ids)
+        self.assertEqual(ids, ["ticket_b", "ticket_a"])
+
+    def test_dedup_path_keeps_medium_similarity_without_min_filter(self):
+        candidates = [
+            self._row("a", 0.85, 80),
+            self._row("b", 0.55, 60),
+        ]
+        out = filter_and_rank_search_results(
+            candidates, limit=2, sort_by_priority=False
+        )
+        self.assertEqual([r["id"] for r in out], ["a", "b"])
 
 
 if __name__ == "__main__":

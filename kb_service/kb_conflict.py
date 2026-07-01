@@ -20,6 +20,7 @@ from pathlib import Path
 CONFLICT_SIMILARITY_THRESHOLD = 0.80
 DEFAULT_DEDUP_THRESHOLD = 0.90
 MAX_ANSWERS_PER_QUERY = 3
+RAG_MIN_SEARCH_SCORE = 0.60  # 检索 API：先过滤低相似度，再按 priority 排序
 
 SOURCE_PRIORITY: dict[str, int] = {
     "ops_doc": 100,
@@ -185,6 +186,34 @@ def search_result_sort_key(item: dict) -> tuple:
 
 def sort_search_results(results: list[dict]) -> list[dict]:
     return sorted(results, key=search_result_sort_key)
+
+
+def filter_and_rank_search_results(
+    candidates: list[dict],
+    *,
+    limit: int,
+    sort_by_priority: bool = True,
+    min_score: float | None = None,
+) -> list[dict]:
+    """
+    组装检索 TopN：
+    - RAG 路径（sort_by_priority=True）：先丢弃 score < 0.60，再 priority 排序
+      避免高 priority 低相似度 FAQ 挤占槽位（如「啥是椰奶」误拒答）
+    - 入库去重/矛盾（sort_by_priority=False）：不按 0.60 过滤，按相似度降序
+    """
+    pool = candidates
+    threshold = min_score
+    if threshold is None and sort_by_priority:
+        threshold = RAG_MIN_SEARCH_SCORE
+    if threshold is not None:
+        pool = [r for r in pool if (r.get("score") or 0) >= threshold]
+
+    if sort_by_priority:
+        pool = sort_search_results(pool)
+    else:
+        pool = sorted(pool, key=lambda x: -float(x.get("score", 0)))
+
+    return pool[:limit]
 
 
 def plan_import_action(
