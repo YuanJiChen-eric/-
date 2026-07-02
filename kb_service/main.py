@@ -172,7 +172,7 @@ async def add_knowledge(req: AddKnowledgeRequest):
 
 @app.post("/api/kb/search", response_model=SearchResponse)
 async def search_knowledge(req: SearchRequest):
-    """检索知识库（按 priority → version → date → 相似度排序）"""
+    """检索知识库（相似度 ≥0.60 过滤后，按 priority → version → date → 相似度排序）"""
     try:
         results = store.search(
             query=req.query,

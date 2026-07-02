@@ -17,6 +17,7 @@ from kb_conflict import (
     DEFAULT_DEDUP_THRESHOLD,
     MAX_ANSWERS_PER_QUERY,
     effective_similarity_score,
+    filter_and_rank_search_results,
     get_priority,
     log_import_conflict,
     parse_date,
@@ -406,6 +407,7 @@ class ChromaStore:
         active_only: bool = True,
         sort_by_priority: bool = True,
         max_answers: int | None = None,
+        min_score: float | None = None,
     ) -> list:
         total = self.count()
         if total == 0:
@@ -448,10 +450,12 @@ class ChromaStore:
                 }
             )
 
-        if sort_by_priority:
-            output = sort_search_results(output)
-
-        return output[:limit]
+        return filter_and_rank_search_results(
+            output,
+            limit=limit,
+            sort_by_priority=sort_by_priority,
+            min_score=min_score,
+        )
 
     def soft_delete(
         self,
